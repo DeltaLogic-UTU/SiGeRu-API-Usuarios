@@ -1,9 +1,10 @@
 <?php
 
 return [
+    //  Se eliminó 'csrf-token' de las rutas permitidas por CORS
+    
     'paths' => [
-        'api/*',
-        'csrf-token'
+        'api/*'
     ],
 
     'allowed_methods' => ['*'],

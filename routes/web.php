@@ -6,11 +6,7 @@ use App\Http\Controllers\SolicitudAccesoController;
 use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\RecuperacionPasswordController;
 
-Route::get('/csrf-token', function () {
-    return response()->json([
-        'token' => csrf_token()
-    ]);
-});
+// Se eliminó la ruta GET '/csrf-token' 
 
 Route::post('/api/login', [AuthController::class, 'login']);
 Route::get('/api/session', [AuthController::class, 'session']);
