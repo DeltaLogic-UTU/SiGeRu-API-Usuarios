@@ -11,10 +11,32 @@ use Illuminate\Support\Facades\DB;
 
 class SolicitudAccesoController extends Controller
 {
+    //  Método auxiliar para obtener el usuario y su rol desde
+    // el token JWT (auth('api')->user()) en lugar de $request->session()->get('usuario').
+    private function obtenerUsuarioJwt(): ?array
+    {
+        /** @var Dato|null $dato */
+        $dato = auth('api')->user();
+
+        if (!$dato) {
+            return null;
+        }
+
+        $dato->loadMissing('usuario.rol');
+
+        if (!$dato->usuario) {
+            return null;
+        }
+
+        return [
+            'id_usuario' => $dato->usuario->id_usuario,
+            'rol' => $dato->usuario->rol?->nombre,
+        ];
+    }
+
     public function index(Request $request)
     {
-        $usuarioSesion =
-            $request->session()->get('usuario');
+        $usuarioSesion = $this->obtenerUsuarioJwt();
 
         if (!$usuarioSesion) {
             return response()->json([
@@ -67,8 +89,7 @@ class SolicitudAccesoController extends Controller
         Request $request,
         $id
     ) {
-        $usuarioSesion =
-            $request->session()->get('usuario');
+        $usuarioSesion = $this->obtenerUsuarioJwt();
 
         if (!$usuarioSesion) {
             return response()->json([
@@ -280,8 +301,8 @@ class SolicitudAccesoController extends Controller
         Request $request,
         $id
     ) {
-        $usuarioSesion =
-            $request->session()->get('usuario');
+        //  Se obtiene el usuario desde el token JWT en vez de la sesión.
+        $usuarioSesion = $this->obtenerUsuarioJwt();
 
         if (!$usuarioSesion) {
             return response()->json([

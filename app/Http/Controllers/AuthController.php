@@ -11,8 +11,17 @@ use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
+    //  El login ahora autentica con
+    // auth('api')->attempt(...) y devuelve un token JWT firmado (access_token) en vez
+    // de guardar datos en $request->session().
+    // Acepta el campo 'email' (como en el PDF del profesor) o 'usuario' (como envía
+    // actualmente el formulario del frontend de SiGeRu).
     public function login(Request $request)
     {
+        if ($request->filled('email') && !$request->filled('usuario')) {
+            $request->merge(['usuario' => $request->input('email')]);
+        }
+
         $request->validate(
             [
                 'usuario' => [
@@ -40,22 +49,17 @@ class AuthController extends Controller
             ]
         );
 
-        $dato = Dato::with('usuario.rol')
-            ->where(
-                'email',
-                strtolower(
-                    trim($request->usuario)
-                )
-            )
-            ->first();
+        $email = strtolower(trim($request->usuario));
 
-        if (
-            !$dato ||
-            !Hash::check(
-                $request->password,
-                $dato->password
-            )
-        ) {
+        //  auth('api')->attempt() busca el
+        // registro por email en el provider 'datos' (modelo Dato), verifica el hash
+        // de 'password' y, si coincide, genera y devuelve el token JWT firmado.
+        $token = auth('api')->attempt([
+            'email' => $email,
+            'password' => $request->password,
+        ]);
+
+        if (!$token) {
             return response()->json([
                 'success' => false,
                 'message' =>
@@ -64,12 +68,17 @@ class AuthController extends Controller
             ], 401);
         }
 
+        /** @var Dato $dato */
+        $dato = auth('api')->user();
+        $dato->loadMissing('usuario.rol');
         $usuario = $dato->usuario;
 
         if (
-            $usuario->estado !==
-            'activo'
+            !$usuario ||
+            $usuario->estado !== 'activo'
         ) {
+            auth('api')->logout();
+
             return response()->json([
                 'success' => false,
                 'message' =>
@@ -78,63 +87,53 @@ class AuthController extends Controller
             ], 403);
         }
 
-        $request
-            ->session()
-            ->regenerate();
+        return $this->tokenResponse($token, $usuario, $dato);
+    }
 
-        $request
-            ->session()
-            ->put(
-                'usuario',
-                [
-                    'id_usuario' =>
-                        $usuario->id_usuario,
-
-                    'nombre' =>
-                        $usuario->nombre,
-
-                    'apellido' =>
-                        $usuario->apellido,
-
-                    'email' =>
-                        $dato->email,
-
-                    'rol' =>
-                        $usuario->rol->nombre
-                ]
-            );
+    //  Construye la respuesta JSON del login/refresh
+    // con access_token, token_type ('bearer') y expires_in (en segundos), manteniendo
+    // además los datos del usuario y el rol que utiliza la interfaz de SiGeRu.
+    private function tokenResponse(string $token, ?Usuario $usuario = null, ?Dato $dato = null)
+    {
+        if (!$dato) {
+            /** @var Dato|null $dato */
+            $dato = auth('api')->user();
+            $dato?->loadMissing('usuario.rol');
+            $usuario = $dato?->usuario;
+        }
 
         return response()->json([
             'success' => true,
-
-            'message' =>
-                'Inicio de sesión correcto.',
-
+            'message' => 'Inicio de sesión correcto.',
             'data' => [
-                'id_usuario' =>
-                    $usuario->id_usuario,
-
-                'nombre' =>
-                    $usuario->nombre .
-                    ' ' .
-                    $usuario->apellido,
-
-                'email' =>
-                    $dato->email
+                'access_token' => $token,
+                'token_type' => 'bearer',
+                'expires_in' => auth('api')->factory()->getTTL() * 60,
+                'id_usuario' => $usuario?->id_usuario,
+                'nombre' => trim(($usuario?->nombre ?? '') . ' ' . ($usuario?->apellido ?? '')),
+                'email' => $dato?->email,
             ],
-
-            'rol' =>
-                $usuario->rol->nombre
+            'rol' => $usuario?->rol?->nombre,
         ]);
     }
 
-
+    //  Obtiene el usuario autenticado a partir
+    // del token JWT enviado en el header "Authorization: Bearer <token>".
     public function session(Request $request)
     {
-        $usuario =
-            $request
-                ->session()
-                ->get('usuario');
+        /** @var Dato|null $dato */
+        $dato = auth('api')->user();
+
+        if (!$dato) {
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    'No hay una sesión activa.'
+            ], 401);
+        }
+
+        $dato->loadMissing('usuario.rol');
+        $usuario = $dato->usuario;
 
         if (!$usuario) {
             return response()->json([
@@ -144,26 +143,46 @@ class AuthController extends Controller
             ], 401);
         }
 
+        $datosUsuario = [
+            'id_usuario' => $usuario->id_usuario,
+            'nombre' => $usuario->nombre,
+            'apellido' => $usuario->apellido,
+            'email' => $dato->email,
+            'rol' => $usuario->rol?->nombre,
+        ];
+
         return response()->json([
             'success' => true,
-            'usuario' => $usuario
+            'usuario' => $datosUsuario,
+            'data' => $datosUsuario,
         ]);
     }
 
+    //  Alias me() igual al PDF del profesor
+    // para consultar quién es el usuario autenticado con GET /api/auth/me.
+    public function me(Request $request)
+    {
+        return $this->session($request);
+    }
 
+    // Permite renovar el token JWT antes de
+    // que venza usando POST /api/auth/refresh.
+    public function refresh()
+    {
+        return $this->tokenResponse(auth('api')->refresh());
+    }
+
+    // Invalida el token JWT actual en el servidor
+    // (lo agrega a la lista negra de jwt-auth) en lugar de borrar la sesión de cookies.
     public function logout(Request $request)
     {
-        $request
-            ->session()
-            ->forget('usuario');
-
-        $request
-            ->session()
-            ->invalidate();
-
-        $request
-            ->session()
-            ->regenerateToken();
+        try {
+            if (auth('api')->check()) {
+                auth('api')->logout();
+            }
+        } catch (\Throwable $e) {
+            // Si el token ya había expirado o no fue enviado, igualmente damos por cerrada la sesión.
+        }
 
         return response()->json([
             'success' => true,
@@ -440,14 +459,14 @@ class AuthController extends Controller
     }
 
 
+    // : En vez de leer $request->session()->get('usuario'),
+    // obtenemos el registro autenticado desde el token JWT con auth('api')->user().
     public function perfil(Request $request)
     {
-        $sesion =
-            $request
-                ->session()
-                ->get('usuario');
+        /** @var Dato|null $datoAutenticado */
+        $datoAutenticado = auth('api')->user();
 
-        if (!$sesion) {
+        if (!$datoAutenticado) {
             return response()->json([
                 'success' => false,
                 'message' =>
@@ -461,7 +480,7 @@ class AuthController extends Controller
                 'datos'
             ])
                 ->find(
-                    $sesion['id_usuario']
+                    $datoAutenticado->id_usuario
                 );
 
         if (
@@ -507,14 +526,14 @@ class AuthController extends Controller
     }
 
 
+    //  Se obtiene el usuario desde el token JWT con auth('api')->user()
+    // y se elimina la escritura en $request->session()->put('usuario', ...).
     public function actualizarPerfil(Request $request)
     {
-        $sesion =
-            $request
-                ->session()
-                ->get('usuario');
+        /** @var Dato|null $datoAutenticado */
+        $datoAutenticado = auth('api')->user();
 
-        if (!$sesion) {
+        if (!$datoAutenticado) {
             return response()->json([
                 'success' => false,
                 'message' =>
@@ -525,7 +544,7 @@ class AuthController extends Controller
         $usuario =
             Usuario::with('datos')
                 ->find(
-                    $sesion['id_usuario']
+                    $datoAutenticado->id_usuario
                 );
 
         if (
@@ -755,31 +774,8 @@ class AuthController extends Controller
             }
         );
 
-        $request
-            ->session()
-            ->put(
-                'usuario',
-                [
-                    'id_usuario' =>
-                        $usuario->id_usuario,
-
-                    'nombre' =>
-                        trim(
-                            $datos['nombre']
-                        ),
-
-                    'apellido' =>
-                        trim(
-                            $datos['apellido']
-                        ),
-
-                    'email' =>
-                        $email,
-
-                    'rol' =>
-                        $sesion['rol']
-                ]
-            );
+        //  Ya no se actualiza $request->session()->put('usuario', ...)
+        // porque la API es stateless con JWT.
 
         return response()->json([
             'success' => true,

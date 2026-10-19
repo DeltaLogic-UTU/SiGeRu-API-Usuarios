@@ -16,7 +16,9 @@ return [
     */
 
     'defaults' => [
-        'guard' => env('AUTH_GUARD', 'web'),
+        // Se cambia el guard por defecto
+        // de 'web' (sesiones) a 'api' (JWT).
+        'guard' => env('AUTH_GUARD', 'api'),
         'passwords' => env('AUTH_PASSWORD_BROKER', 'users'),
     ],
 
@@ -41,6 +43,14 @@ return [
         'web' => [
             'driver' => 'session',
             'provider' => 'users',
+        ],
+
+        // Se agrega el guard 'api'
+        // que utiliza el driver 'jwt' (de tymon/jwt-auth) y busca las credenciales
+        // mediante el provider personalizado 'datos' (tabla 'datos').
+        'api' => [
+            'driver' => 'jwt',
+            'provider' => 'datos',
         ],
     ],
 
@@ -67,10 +77,13 @@ return [
             'model' => env('AUTH_MODEL', User::class),
         ],
 
-        // 'users' => [
-        //     'driver' => 'database',
-        //     'table' => 'users',
-        // ],
+        // Provider personalizado 'datos'
+        // porque en SiGeRu el email y el password están en la tabla 'datos' (modelo Dato)
+        // y no en la tabla 'users' por defecto de Laravel.
+        'datos' => [
+            'driver' => 'eloquent',
+            'model' => \App\Models\Dato::class,
+        ],
     ],
 
     /*
