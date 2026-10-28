@@ -89,11 +89,11 @@ class UsuarioController extends Controller
         }
 
         $data = $request->validate([
-            'nombre' => ['required', 'string', 'max:100'],
-            'apellido' => ['required', 'string', 'max:100'],
-            'documento' => ['required', 'string', 'max:20'],
-            'telefono' => ['required', 'string', 'max:20'],
-            'email' => ['required', 'email', 'max:150'],
+            'nombre' => ['required', 'string', 'max:100', 'regex:/^[\pL\s\'-]+$/u'],
+            'apellido' => ['required', 'string', 'max:100', 'regex:/^[\pL\s\'-]+$/u'],
+            'documento' => ['required', 'string', 'max:20', 'regex:/^\d\.\d{3}\.\d{3}-\d$/'],
+            'telefono' => ['required', 'string', 'max:20', 'regex:/^09\d\s?\d{3}\s?\d{3}$/'],
+            'email' => ['required', 'email', 'max:150', 'regex:/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/'],
             'password' => ['required', 'string', 'min:8'],
             'password_confirm' => ['required', 'same:password'],
             'rol' => [

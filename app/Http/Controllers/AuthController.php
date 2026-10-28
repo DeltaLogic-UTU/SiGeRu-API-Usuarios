@@ -205,13 +205,15 @@ class AuthController extends Controller
                     'nombre' => [
                         'required',
                         'string',
-                        'max:80'
+                        'max:80',
+                        'regex:/^[\pL\s\'-]+$/u'
                     ],
 
                     'apellido' => [
                         'required',
                         'string',
-                        'max:80'
+                        'max:80',
+                        'regex:/^[\pL\s\'-]+$/u'
                     ],
 
                     'documento' => [
@@ -229,7 +231,8 @@ class AuthController extends Controller
                     'email' => [
                         'required',
                         'email',
-                        'max:120'
+                        'max:120',
+                        'regex:/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/'
                     ],
 
                     'password' => [
@@ -249,7 +252,8 @@ class AuthController extends Controller
                     'motivo' => [
                         'required',
                         'string',
-                        'max:500'
+                        'max:500',
+                        'regex:/^[\pL\s.,¿?¡!\-]+$/u'
                     ]
                 ],
                 [
@@ -269,6 +273,9 @@ class AuthController extends Controller
                     'nombre.max' =>
                         'El nombre no puede superar los 80 caracteres.',
 
+                    'nombre.regex' =>
+                        'El nombre solo puede contener letras y espacios, sin números ni símbolos.',
+
 
                     'apellido.required' =>
                         'El apellido es obligatorio.',
@@ -278,6 +285,9 @@ class AuthController extends Controller
 
                     'apellido.max' =>
                         'El apellido no puede superar los 80 caracteres.',
+
+                    'apellido.regex' =>
+                        'El apellido solo puede contener letras y espacios, sin números ni símbolos.',
 
 
                     'documento.required' =>
@@ -308,6 +318,9 @@ class AuthController extends Controller
 
                     'email.max' =>
                         'El correo electrónico no puede superar los 120 caracteres.',
+
+                    'email.regex' =>
+                        'El correo electrónico debe tener un dominio válido (ej: nombre@dominio.com).',
 
 
                     'password.required' =>
@@ -340,7 +353,10 @@ class AuthController extends Controller
                         'El motivo ingresado no es válido.',
 
                     'motivo.max' =>
-                        'El motivo no puede superar los 500 caracteres.'
+                        'El motivo no puede superar los 500 caracteres.',
+
+                    'motivo.regex' =>
+                        'El motivo solo puede contener texto explicativo, sin números, símbolos especiales ni comandos.'
                 ]
             );
 
