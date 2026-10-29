@@ -3,6 +3,8 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Auth\AuthenticationException;
+use Symfony\Component\Routing\Exception\RouteNotFoundException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -12,12 +14,22 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //  Se desactiva la validación de CSRF en todas las rutas
-       
         $middleware->validateCsrfTokens(except: [
             '*',
         ]);
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->render(function (AuthenticationException $e, $request) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No autenticado o sesión expirada.'
+            ], 401);
+        });
+        $exceptions->render(function (RouteNotFoundException $e, $request) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No autenticado o sesión expirada.'
+            ], 401);
+        });
     })->create();

@@ -15,12 +15,12 @@ Route::get('health', fn () => response()->json([
 
 // Rutas públicas de autenticación con prefijo /api/auth/* 
 Route::prefix('auth')->group(function () {
-    Route::post('login', [AuthController::class, 'login']);
+    Route::post('login', [AuthController::class, 'login'])->name('login');
     Route::post('refresh', [AuthController::class, 'refresh']);
 });
 
 // Rutas públicas del sistema SiGeRu (login directo, solicitud de acceso y recuperación de contraseña)
-Route::post('login', [AuthController::class, 'login']);
+Route::post('login', [AuthController::class, 'login'])->name('login');
 Route::post('registro', [AuthController::class, 'registro']);
 Route::post('recuperar-password', [RecuperacionPasswordController::class, 'solicitar']);
 Route::post('restablecer-password', [RecuperacionPasswordController::class, 'restablecer']);
