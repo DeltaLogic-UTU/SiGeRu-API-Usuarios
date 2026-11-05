@@ -11,11 +11,8 @@ use Illuminate\Support\Facades\Hash;
 
 class UsuarioController extends Controller
 {
-    //  Se verifica la autenticación y el rol usando el usuario
-    // del token JWT (auth('api')->user()) en lugar de $request->session()->get('usuario').
     private function verificarGestion(Request $request)
     {
-        /** @var Dato|null $dato */
         $dato = auth('api')->user();
 
         if (!$dato) {
@@ -335,9 +332,6 @@ class UsuarioController extends Controller
             ], 404);
         }
 
-        //  Se obtiene el id_usuario autenticado desde el JWT
-        // (auth('api')->user()->id_usuario) en lugar de leer la sesión.
-        /** @var Dato|null $datoAutenticado */
         $datoAutenticado = auth('api')->user();
 
         if (

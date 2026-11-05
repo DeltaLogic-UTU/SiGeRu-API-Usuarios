@@ -8,14 +8,13 @@ use App\Models\SolicitudAcceso;
 use App\Models\Usuario;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 
 class SolicitudAccesoController extends Controller
 {
-    //  Método auxiliar para obtener el usuario y su rol desde
-    // el token JWT (auth('api')->user()) en lugar de $request->session()->get('usuario').
     private function obtenerUsuarioJwt(): ?array
     {
-        /** @var Dato|null $dato */
         $dato = auth('api')->user();
 
         if (!$dato) {
@@ -274,18 +273,43 @@ class SolicitudAccesoController extends Controller
                         now();
 
                     $solicitud->id_supervisor_resuelve =
-                        $usuarioSesion['id']
+                        $usuarioSesion['id_usuario']
                         ?? null;
 
                     $solicitud->save();
                 }
             );
 
-            return response()->json([
-                'success' => true,
-                'message' =>
-                    'Solicitud aprobada correctamente.'
-            ]);
+        $correoEnviado = false;
+
+        try {
+        Mail::raw(
+        "Bienvenido/a {$solicitud->nombre},\n\n" .
+        "Tu solicitud de acceso a SiGeRu fue aprobada.\n" .
+        "Ya podés iniciar sesión con tus datos registrados,.\n\n" .
+        "SiGeRu - Sistema de Gestión de Residuos Urbanos",
+        function ($mensaje) use ($solicitud) {
+            $mensaje
+                ->to($solicitud->email)
+                ->subject('Solicitud aprobada - SiGeRu');
+        }
+        );
+
+        $correoEnviado = true;
+
+        } catch (\Throwable $errorCorreo) {
+        Log::warning('No se pudo enviar el correo de aprobación.', [
+        'solicitud_id' => $solicitud->getKey(),
+        'error' => $errorCorreo->getMessage()
+        ]);
+        }
+
+        return response()->json([
+        'success' => true,
+        'message' => $correoEnviado
+        ? 'Solicitud aprobada y correo enviado correctamente.'
+        : 'Solicitud aprobada, pero no se pudo enviar el correo.'
+        ]);
 
         } catch (\Throwable $error) {
             return response()->json([
@@ -301,7 +325,6 @@ class SolicitudAccesoController extends Controller
         Request $request,
         $id
     ) {
-        //  Se obtiene el usuario desde el token JWT en vez de la sesión.
         $usuarioSesion = $this->obtenerUsuarioJwt();
 
         if (!$usuarioSesion) {
@@ -364,7 +387,7 @@ class SolicitudAccesoController extends Controller
                 now();
 
             $solicitud->id_supervisor_resuelve =
-                $usuarioSesion['id']
+                $usuarioSesion['id_usuario']
                 ?? null;
 
             $solicitud->save();

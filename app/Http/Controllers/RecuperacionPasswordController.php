@@ -13,39 +13,13 @@ class RecuperacionPasswordController extends Controller
 {
     public function solicitar(Request $request)
     {
-        $datos = $request->validate(
-            [
-                'email' => [
-                    'required',
-                    'email',
-                    'max:150'
-                ]
-            ],
-            [
-                'email.required' =>
-                    'El correo electrónico es obligatorio.',
+        $datos = $request->validate([
+            'email' => ['required', 'email', 'max:150'],
+        ]);
 
-                'email.email' =>
-                    'Ingresá un correo electrónico válido.',
-
-                'email.max' =>
-                    'El correo electrónico no puede superar los 150 caracteres.'
-            ]
-        );
-
-        $email =
-            strtolower(
-                trim($datos['email'])
-            );
-
-        $mensaje =
-            'Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.';
-
-        $dato =
-            Dato::where(
-                'email',
-                $email
-            )->first();
+        $email = strtolower(trim($datos['email']));
+        $mensaje = 'Si el correo está registrado y activo, recibirás un código de recuperación.';
+        $dato = Dato::where('email', $email)->first();
 
         if (!$dato) {
             return response()->json([
@@ -54,17 +28,10 @@ class RecuperacionPasswordController extends Controller
             ]);
         }
 
-        $usuario =
-            DB::table('usuarios')
-                ->where(
-                    'id_usuario',
-                    $dato->id_usuario
-                )
-                ->where(
-                    'estado',
-                    'activo'
-                )
-                ->first();
+        $usuario = DB::table('usuarios')
+            ->where('id_usuario', $dato->id_usuario)
+            ->where('estado', 'activo')
+            ->first();
 
         if (!$usuario) {
             return response()->json([
@@ -73,98 +40,52 @@ class RecuperacionPasswordController extends Controller
             ]);
         }
 
-        $token =
-            bin2hex(
-                random_bytes(32)
-            );
+        $codigo = str_pad(
+            (string) random_int(0, 99999999),
+            8,
+            '0',
+            STR_PAD_LEFT
+        );
 
-        $codigo =
-            hash(
-                'sha256',
-                $token
-            );
+        $codigoHash = hash('sha256', $codigo);
+        $idSolicitud = null;
 
         try {
-            $idSolicitud =
-                DB::transaction(
-                    function () use (
-                        $usuario,
-                        $codigo
-                    ) {
-                        
-                        DB::table(
-                            'rec_password'
-                        )
-                            ->where(
-                                'id_usuario',
-                                $usuario->id_usuario
-                            )
-                            ->where(
-                                'estado',
-                                'pendiente'
-                            )
-                            ->update([
-                                'estado' =>
-                                    'reemplazada'
-                            ]);
+            $idSolicitud = DB::transaction(function () use ($usuario, $codigoHash) {
+                DB::table('rec_password')
+                    ->where('id_usuario', $usuario->id_usuario)
+                    ->where('estado', 'pendiente')
+                    ->update(['estado' => 'reemplazada']);
 
-                        return DB::table(
-                            'rec_password'
-                        )->insertGetId([
-                            'id_usuario' =>
-                                $usuario->id_usuario,
+                return DB::table('rec_password')->insertGetId([
+                    'id_usuario' => $usuario->id_usuario,
+                    'codigo' => $codigoHash,
+                    'estado' => 'pendiente',
+                    'fecha_solicitud' => now(),
+                    'fecha_expiracion' => now()->addMinutes(15),
+                ]);
+            });
 
-                            'estado' =>
-                                'pendiente',
-
-                            'codigo' =>
-                                $codigo,
-
-                            'fecha_solicitud' =>
-                                now(),
-
-                            'fecha_expiracion' =>
-                                now()->addHour()
-                        ]);
-                    }
-                );
-
-            $frontend =
-                rtrim(
-                    config(
-                        'sigeru.frontend_url'
-                    ),
-                    '/'
-                );
-
-            $enlace =
-                $frontend .
-                '/landing-page/restablecer-password.html?token=' .
-                urlencode($token);
-
-            $nombre =
-                trim(
-                    ($usuario->nombre ?? '') .
-                    ' ' .
-                    ($usuario->apellido ?? '')
-                );
+            $nombre = trim(
+                ($usuario->nombre ?? '') . ' ' .
+                ($usuario->apellido ?? '')
+            );
 
             Mail::raw(
-                "Hola {$nombre}.\n\n" .
-                "Recibimos una solicitud para cambiar la contraseña de tu cuenta de SiGeRu.\n\n" .
-                "Abrí el siguiente enlace para crear una nueva contraseña:\n\n" .
-                "{$enlace}\n\n" .
-                "El enlace es válido durante 1 hora.\n\n" .
-                "Si no solicitaste este cambio, podés ignorar este mensaje.",
-
-                function ($message) use (
-                    $email
-                ) {
-                    $message
+                "Hola {$nombre}:\n\n" .
+                "Solicitaste recuperar tu contraseña de SiGeRu.\n\n" .
+                "Tu código de recuperación es: {$codigo}\n\n" .
+                "Instrucciones:\n" .
+                "1. Abrí la página Recuperar contraseña de SiGeRu.\n" .
+                "2. Debajo de Solicitar recuperación, ingresá tu correo y el código recibido.\n" .
+                "3. Presioná Verificar código y continuar.\n" .
+                "4. En la página siguiente, escribí y confirmá tu nueva contraseña.\n\n" .
+                "El código vence en 15 minutos y solo puede utilizarse una vez.\n" .
+                "Si no solicitaste este cambio, ignorá este correo.",
+                function ($correo) use ($email) {
+                    $correo
                         ->to($email)
-                        ->subject(
-                            'Recuperación de contraseña - SiGeRu'
-                        );
+                        ->subject('Código de recuperación - SiGeRu');
                 }
             );
 
@@ -174,221 +95,156 @@ class RecuperacionPasswordController extends Controller
             ]);
 
         } catch (\Throwable $error) {
-            if (
-                isset($idSolicitud)
-            ) {
-                DB::table(
-                    'rec_password'
-                )
-                    ->where(
-                        'id_solicitud',
-                        $idSolicitud
-                    )
-                    ->update([
-                        'estado' =>
-                            'error_envio'
-                    ]);
+            if ($idSolicitud !== null) {
+                DB::table('rec_password')
+                    ->where('id_solicitud', $idSolicitud)
+                    ->update(['estado' => 'error_envio']);
             }
 
             Log::error(
-                'Error al solicitar recuperación de contraseña.',
-                [
-                    'mensaje' =>
-                        $error->getMessage()
-                ]
+                'Error al enviar código de recuperación SiGeRu.',
+                ['error' => $error->getMessage()]
             );
 
             return response()->json([
                 'success' => false,
-                'message' =>
-                    'No se pudo procesar la recuperación de contraseña. Intentá nuevamente.'
+                'message' => 'No se pudo procesar la recuperación. Intentá nuevamente.'
             ], 500);
         }
     }
 
+    public function verificar(Request $request)
+    {
+        $datos = $request->validate([
+            'email' => ['required', 'email', 'max:150'],
+            'codigo' => ['required', 'regex:/^[0-9]{8}$/'],
+        ]);
 
-    public function restablecer(
-        Request $request
-    ) {
-        $datos = $request->validate(
-            [
-                'token' => [
-                    'required',
-                    'string',
-                    'size:64'
-                ],
+        $email = strtolower(trim($datos['email']));
 
-                'password' => [
-                    'required',
-                    'string',
-                    'min:8',
-                    'max:255',
-                    'confirmed'
-                ]
+        if (!$this->codigoVigente($email, $datos['codigo'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Código incorrecto, vencido o ya utilizado.'
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Código verificado. Ya podés crear una nueva contraseña.'
+        ]);
+    }
+
+    public function restablecer(Request $request)
+    {
+        $datos = $request->validate([
+            'email' => ['required', 'email', 'max:150'],
+            'codigo' => ['required', 'regex:/^[0-9]{8}$/'],
+            'password' => [
+                'required', 'string',
+                'min:8', 'max:255', 'confirmed'
             ],
-            [
-                'token.required' =>
-                    'El enlace de recuperación no es válido.',
+        ]);
 
-                'token.size' =>
-                    'El enlace de recuperación no es válido.',
-
-                'password.required' =>
-                    'La nueva contraseña es obligatoria.',
-
-                'password.min' =>
-                    'La contraseña debe tener al menos 8 caracteres.',
-
-                'password.max' =>
-                    'La contraseña es demasiado larga.',
-
-                'password.confirmed' =>
-                    'Las contraseñas no coinciden.'
-            ]
-        );
-
-        $codigo =
-            hash(
-                'sha256',
-                $datos['token']
-            );
-
-        $solicitud =
-            DB::table(
-                'rec_password'
-            )
-                ->where(
-                    'codigo',
-                    $codigo
-                )
-                ->where(
-                    'estado',
-                    'pendiente'
-                )
-                ->where(
-                    'fecha_expiracion',
-                    '>',
-                    now()
-                )
-                ->orderByDesc(
-                    'id_solicitud'
-                )
-                ->first();
-
-        if (!$solicitud) {
-            return response()->json([
-                'success' => false,
-                'message' =>
-                    'El enlace de recuperación no es válido o ya venció.'
-            ], 422);
-        }
-
-        $usuario =
-            DB::table('usuarios')
-                ->where(
-                    'id_usuario',
-                    $solicitud->id_usuario
-                )
-                ->where(
-                    'estado',
-                    'activo'
-                )
-                ->first();
-
-        if (!$usuario) {
-            return response()->json([
-                'success' => false,
-                'message' =>
-                    'No se pudo restablecer la contraseña.'
-            ], 422);
-        }
-
-        $dato =
-            DB::table('datos')
-                ->where(
-                    'id_usuario',
-                    $usuario->id_usuario
-                )
-                ->first();
-
-        if (!$dato) {
-            return response()->json([
-                'success' => false,
-                'message' =>
-                    'No se encontraron los datos de la cuenta.'
-            ], 422);
-        }
+        $email = strtolower(trim($datos['email']));
+        $hashCodigo = hash('sha256', $datos['codigo']);
 
         try {
-            DB::transaction(
-                function () use (
-                    $datos,
-                    $usuario,
-                    $solicitud
-                ) {
+            $actualizado = DB::transaction(
+                function () use ($email, $hashCodigo, $datos) {
+                    $dato = Dato::where('email', $email)->first();
+
+                    if (!$dato) {
+                        return false;
+                    }
+
+                    $usuarioActivo = DB::table('usuarios')
+                        ->where('id_usuario', $dato->id_usuario)
+                        ->where('estado', 'activo')
+                        ->exists();
+
+                    if (!$usuarioActivo) {
+                        return false;
+                    }
+
+                    $solicitud = DB::table('rec_password')
+                        ->where('id_usuario', $dato->id_usuario)
+                        ->where('codigo', $hashCodigo)
+                        ->where('estado', 'pendiente')
+                        ->where('fecha_expiracion', '>', now())
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$solicitud) {
+                        return false;
+                    }
+
                     DB::table('datos')
-                        ->where(
-                            'id_usuario',
-                            $usuario->id_usuario
-                        )
+                        ->where('id_usuario', $dato->id_usuario)
                         ->update([
-                            'password' =>
-                                Hash::make(
-                                    $datos['password']
-                                )
+                            'password' => Hash::make($datos['password'])
                         ]);
 
-                    DB::table(
-                        'rec_password'
-                    )
-                        ->where(
-                            'id_solicitud',
-                            $solicitud->id_solicitud
-                        )
-                        ->update([
-                            'estado' =>
-                                'utilizada'
-                        ]);
+                    DB::table('rec_password')
+                        ->where('id_solicitud', $solicitud->id_solicitud)
+                        ->update(['estado' => 'utilizada']);
 
-                
-                    DB::table(
-                        'rec_password'
-                    )
-                        ->where(
-                            'id_usuario',
-                            $usuario->id_usuario
-                        )
-                        ->where(
-                            'estado',
-                            'pendiente'
-                        )
-                        ->update([
-                            'estado' =>
-                                'reemplazada'
-                        ]);
+                    DB::table('rec_password')
+                        ->where('id_usuario', $dato->id_usuario)
+                        ->where('estado', 'pendiente')
+                        ->update(['estado' => 'reemplazada']);
+
+                    return true;
                 }
             );
 
+            if (!$actualizado) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Código incorrecto, vencido o ya utilizado.'
+                ], 422);
+            }
+
             return response()->json([
                 'success' => true,
-                'message' =>
-                    'La contraseña fue actualizada correctamente.'
+                'message' => 'La contraseña fue actualizada correctamente. Ya podés iniciar sesión.'
             ]);
 
         } catch (\Throwable $error) {
             Log::error(
-                'Error al restablecer contraseña.',
-                [
-                    'mensaje' =>
-                        $error->getMessage()
-                ]
+                'Error al restablecer contraseña SiGeRu.',
+                ['error' => $error->getMessage()]
             );
 
             return response()->json([
                 'success' => false,
-                'message' =>
-                    'No se pudo actualizar la contraseña.'
+                'message' => 'No se pudo actualizar la contraseña.'
             ], 500);
         }
+    }
+
+    private function codigoVigente(string $email, string $codigo): bool
+    {
+        $dato = Dato::where('email', $email)->first();
+
+        if (!$dato) {
+            return false;
+        }
+
+        $usuarioActivo = DB::table('usuarios')
+            ->where('id_usuario', $dato->id_usuario)
+            ->where('estado', 'activo')
+            ->exists();
+
+        if (!$usuarioActivo) {
+            return false;
+        }
+
+        return DB::table('rec_password')
+            ->where('id_usuario', $dato->id_usuario)
+            ->where('codigo', hash('sha256', $codigo))
+            ->where('estado', 'pendiente')
+            ->where('fecha_expiracion', '>', now())
+            ->exists();
     }
 }
